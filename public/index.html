@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Real-Time Auction Dashboard</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --accent: #38bdf8;
+      --success: #22c55e;
+      --border: #334155;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .full-width { grid-column: 1 / -1; }
+    h1, h2, h3 { margin-top: 0; color: var(--accent); }
+    .price-display {
+      font-size: 2.5rem;
+      font-weight: bold;
+      color: var(--success);
+      margin: 10px 0;
+    }
+    .btn {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 10px 18px;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      font-size: 1rem;
+    }
+    .btn:hover { opacity: 0.9; }
+    input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #0f172a;
+      color: #fff;
+      box-sizing: border-box;
+    }
+    #log {
+      height: 200px;
+      overflow-y: auto;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      padding: 10px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.85rem;
+    }
+    .log-entry { margin-bottom: 6px; border-bottom: 1px dashed #334155; padding-bottom: 4px; }
+    .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; background: #334155; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="card full-width">
+      <h1>🔨 Real-Time Auction & Bidding Dashboard</h1>
+      <span id="connection-status" class="badge">Connecting...</span>
+    </div>
+
+    <!-- Active Item Info -->
+    <div class="card">
+      <h2>Active Item</h2>
+      <h3 id="item-name">Loading...</h3>
+      <div class="price-display">$<span id="current-bid">0</span></div>
+      <p>Highest Bidder: <strong id="highest-bidder">None</strong></p>
+      <p>Status: <span id="auction-status" class="badge">Open</span></p>
+    </div>
+
+    <!-- Place Bid Controls -->
+    <div class="card">
+      <h2>Place Your Bid</h2>
+      <label>Your Name:</label>
+      <input type="text" id="bidder-name" value="Alice" />
+
+      <label>Bid Amount ($):</label>
+      <input type="number" id="bid-amount" value="550" step="50" />
+
+      <button class="btn" onclick="submitBid()">Place Real-Time Bid</button>
+    </div>
+
+    <!-- Real-Time Activity Log -->
+    <div class="card full-width">
+      <h2>Live Activity Feed</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    const itemId = "item-101";
+
+    const itemNameEl = document.getElementById("item-name");
+    const currentBidEl = document.getElementById("current-bid");
+    const highestBidderEl = document.getElementById("highest-bidder");
+    const statusEl = document.getElementById("connection-status");
+    const logEl = document.getElementById("log");
+
+    function appendLog(msg) {
+      const entry = document.createElement("div");
+      entry.className = "log-entry";
+      entry.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.prepend(entry);
+    }
+
+    socket.on("connect", () => {
+      statusEl.innerText = "Connected (Live)";
+      statusEl.style.background = "#22c55e";
+      appendLog("Connected to WebSocket server.");
+      socket.emit("joinItemRoom", itemId);
+    });
+
+    socket.on("disconnect", () => {
+      statusEl.innerText = "Disconnected";
+      statusEl.style.background = "#ef4444";
+      appendLog("Disconnected from server.");
+    });
+
+    // Listen for initial item state
+    socket.on("itemState", (summary) => {
+      updateDisplay(summary);
+      appendLog(`Loaded initial item state for: ${summary.name}`);
+    });
+
+    // Listen for real-time bid updates
+    socket.on("bidUpdated", (data) => {
+      updateDisplay(data.itemSummary);
+      appendLog(`🔥 New Bid! $${data.itemSummary.currentBid} by ${data.itemSummary.highestBidder}`);
+    });
+
+    // Listen for proxy agent auto-bids
+    socket.on("agentBidPlaced", (data) => {
+      updateDisplay(data.itemSummary);
+      appendLog(`🤖 Proxy Agent Auto-Bid! $${data.itemSummary.currentBid} by ${data.itemSummary.highestBidder}`);
+    });
+
+    socket.on("bidError", (err) => {
+      appendLog(`⚠️ Bid Error: ${err.reason || err.message}`);
+    });
+
+    function updateDisplay(summary) {
+      itemNameEl.innerText = summary.name;
+      currentBidEl.innerText = summary.currentBid;
+      highestBidderEl.innerText = summary.highestBidder;
+    }
+
+    function submitBid() {
+      const name = document.getElementById("bidder-name").value;
+      const amount = parseFloat(document.getElementById("bid-amount").value);
+
+      socket.emit("placeBid", {
+        itemId,
+        bidder: { id: "usr-" + name.toLowerCase(), name },
+        amount
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 // src/index.js
 
 const http = require("http");
+const path = require("path");
 const express = require("express");
 const { Server } = require("socket.io");
 
@@ -13,17 +14,27 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
+// Serve public directory
+const publicPath = path.join(__dirname, "../public");
+app.use(express.static(publicPath));
+
+// Explicit route fallback for index.html
+app.get("/", (req, res) => {
+  res.sendFile(path.join(publicPath, "index.html"));
+});
+
 // 1. Initialize Socket.IO Service
 const socketService = new SocketService(io);
 socketService.init();
 
-// 2. Setup Mock Data
+// 2. Setup Data
 const watch = new Item({
   id: "item-101",
   name: "Vintage Rolex Submariner",
   description: "1978 rare collector item",
   startingBid: 500,
-  minIncrement: 50
+  minIncrement: 50,
+  durationInSeconds: 3600
 });
 socketService.registerItem(watch);
 
@@ -35,11 +46,6 @@ const bobsAgent = new Agent({
   maxBudget: 800
 });
 socketService.registerAgent(bobsAgent);
-
-// Express REST Endpoint to check server status
-app.get("/status", (req, res) => {
-  res.json({ status: "Online", activeItem: watch.getSummary() });
-});
 
 const PORT = 3000;
 server.listen(PORT, () => {
